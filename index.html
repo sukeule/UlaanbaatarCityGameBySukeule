@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ulaanbaatar Board — Playable Prototype</title>
+  <style>
+    :root{--bg:#0b1020;--card:#0f1724;--accent:#ffd166;--text:#e6eef8}
+    body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial; margin:0; min-height:100vh; background:linear-gradient(180deg,#071026 0%,#081427 100%); color:var(--text); display:flex; gap:20px; padding:20px}
+    .left{width:680px}
+    .board{background:linear-gradient(180deg,#0e1623,#121826); padding:12px; border-radius:8px; box-shadow:0 6px 24px rgba(2,6,23,.6)}
+    .tiles{display:grid; grid-template-columns:repeat(11,58px); grid-auto-rows:58px; gap:6px}
+    .tile{background:#0b1220; border-radius:6px; display:flex; flex-direction:column; justify-content:center; align-items:center; font-size:10px; text-align:center; padding:6px; color:#cfe3ff}
+    .prop-color{height:8px; width:100%; border-radius:4px 4px 0 0}
+    .controls{margin-top:12px; display:flex; gap:8px}
+    button{background:var(--accent); border:0; padding:8px 12px; border-radius:6px; cursor:pointer}
+    .sidebar{flex:1; display:flex; flex-direction:column; gap:12px}
+    .card{background:var(--card); padding:12px; border-radius:8px}
+    .players{display:flex; gap:8px; flex-direction:column}
+    .player{display:flex; justify-content:space-between; align-items:center; padding:8px; border-radius:6px; background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent)}
+    .log{height:220px; overflow:auto; font-size:13px; padding:8px; background:rgba(0,0,0,0.12); border-radius:6px}
+    .small{font-size:12px; color:#a9c0e6}
+    .board-legend{display:flex; gap:6px; flex-wrap:wrap; margin-top:8px}
+    .legend-item{display:flex; gap:6px; align-items:center}
+    .dot{width:18px;height:12px;border-radius:3px}
+    input[type=number]{width:84px;padding:6px;border-radius:6px;border:0}
+    a.link{color:var(--accent)}
+  </style>
+</head>
+<body>
+  <div class="left">
+    <div class="board card">
+      <h3>Ulaanbaatar Board — Prototype</h3>
+      <div class="tiles" id="tiles"></div>
+      <div class="controls">
+        <button id="rollBtn">Roll Dice</button>
+        <button id="endTurnBtn">End Turn</button>
+        <div class="small">Dice: <span id="diceVal">-</span></div>
+        <div style="flex:1"></div>
+        <div class="small">Start money: <strong id="startMoneyLabel">50,000₮</strong></div>
+      </div>
+    </div>
+    <div style="margin-top:10px" class="card">
+      <strong>How to play (local multiplayer)</strong>
+      <ol class="small">
+        <li>Up to 4 players. Click "Roll Dice" — move and follow instructions.</li>
+        <li>If property is unowned you can buy it. If owned, pay rent automatically.</li>
+        <li>If you own a full color set, you may build houses/hotels from the sidebar.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center">
+        <div>
+          <div class="small">Players</div>
+          <div class="small">(pass-and-play, local)</div>
+        </div>
+        <div>
+          <label class="small">Players:</label>
+          <select id="playerCount"><option>2</option><option selected>3</option><option>4</option></select>
+          <button id="newGame">New Game</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="players" id="playersList"></div>
+    </div>
+
+    <div class="card">
+      <div class="small">Property Actions</div>
+      <div style="display:flex; gap:8px; margin-top:8px">
+        <button id="buyBtn">Buy</button>
+        <button id="buildBtn">Build House</button>
+        <button id="upgradeBtn">Upgrade to Hotel</button>
+      </div>
+      <div class="small" style="margin-top:8px">House/hotel costs auto-read from property set.</div>
+    </div>
+
+    <div class="card">
+      <div class="small">Game Log</div>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div class="card">
+      <div class="small">Legend</div>
+      <div class="board-legend" id="legend"></div>
+    </div>
+  </div>
+
+<script>
+// === GAME DATA (balanced, small-scale units as discussed) ===
+const START_MONEY = 50000; // 50,000₮ starting
+
+const properties = [
+  {name:"Sharhad", color:"brown", price:1000, rent:100},
+  {name:"Erdenetolgoi", color:"brown", price:1200, rent:120},
+
+  {name:"16-r Horoolol", color:"lightblue", price:2000, rent:200},
+  {name:"72-r Hothon", color:"lightblue", price:2200, rent:220},
+  {name:"Officeruudiin Ordon", color:"lightblue", price:2400, rent:240},
+
+  {name:"Jukoviin Muzei", color:"purple", price:3000, rent:300},
+  {name:"Sansar", color:"purple", price:3200, rent:320},
+  {name:"100 Ail", color:"purple", price:3500, rent:350},
+
+  {name:"Narantuul", color:"orange", price:4000, rent:400},
+  {name:"Tsetserlegt Hureelen", color:"orange", price:4300, rent:430},
+  {name:"Emart Khan-Uul", color:"orange", price:4500, rent:450},
+
+  {name:"Park", color:"red", price:5000, rent:500},
+  {name:"UG Arena", color:"red", price:5300, rent:530},
+  {name:"Steppe Arena", color:"red", price:5500, rent:550},
+
+  {name:"Central Tower", color:"yellow", price:6000, rent:600},
+  {name:"Hunnu Mall", color:"yellow", price:6300, rent:630},
+  {name:"Viva City", color:"yellow", price:6500, rent:650},
+
+  {name:"Encanto Town", color:"green", price:7000, rent:700},
+  {name:"Japan Town", color:"green", price:7400, rent:740},
+  {name:"River Garden", color:"green", price:7800, rent:780},
+
+  {name:"Shangri-La", color:"darkblue", price:8000, rent:800},
+  {name:"Blue Sky Tower", color:"darkblue", price:9000, rent:900}
+];
+
+// House/hotel costs mapped by color (from earlier table)
+const upgradeCosts = {
+  brown: {house:800, hotel:1600},
+  lightblue: {house:1000, hotel:2000},
+  purple: {house:1200, hotel:2400},
+  orange: {house:1500, hotel:3000},
+  red: {house:1800, hotel:3600},
+  yellow: {house:2000, hotel:4000},
+  green: {house:2400, hotel:4800},
+  darkblue: {house:3000, hotel:6000}
+};
+
+// === GAME STATE ===
+let players = [];
+let currentPlayer = 0;
+let dice = 0;
+let tilesOrder = []; // map index positions we'll render
+
+function initTilesOrder(){
+  // For simplicity layout: use properties array in order across a rectangular grid.
+  tilesOrder = [...properties];
+}
+
+function log(msg){
+  const el = document.getElementById('log');
+  el.innerHTML = `<div>${msg}</div>` + el.innerHTML;
+}
+
+function newGame(){
+  const count = parseInt(document.getElementById('playerCount').value);
+  players = [];
+  for(let i=0;i<count;i++){
+    players.push({name:`Player ${i+1}`, money:START_MONEY, pos:0, properties:[], jail:false, freeJail:false});
+  }
+  currentPlayer = 0;
+  renderPlayers();
+  renderBoard();
+  log('New game started — ' + count + ' players, starting money ' + START_MONEY + '₮');
+}
+
+// === UI rendering ===
+function renderBoard(){
+  const tiles = document.getElementById('tiles');
+  tiles.innerHTML = '';
+  tilesOrder.forEach((p, idx) => {
+    const div = document.createElement('div');
+    div.className = 'tile';
+    const top = document.createElement('div');
+    top.className = 'prop-color';
+    top.style.background = colorMap(p.color);
+    div.appendChild(top);
+    const name = document.createElement('div');
+    name.innerHTML = `<strong style="font-size:11px">${p.name}</strong><div class="small">${p.price}₮</div>`;
+    div.appendChild(name);
+    // owner + houses
+    const info = document.createElement('div');
+    info.className = 'small';
+    const owner = p.owner ? (`Owner: ${p.owner+1}`) : 'Available';
+    const houses = p.houses ? (`H:${p.houses}`) : '';
+    info.innerText = owner + ' ' + houses;
+    div.appendChild(info);
+    // highlight player presence
+    players.forEach((pl, i)=>{ if(pl.pos===idx){ const badge=document.createElement('div'); badge.innerText='P'+(i+1); badge.style.fontSize='11px'; badge.style.marginTop='6px'; div.appendChild(badge); } });
+    tiles.appendChild(div);
+  });
+}
+
+function renderPlayers(){
+  const list = document.getElementById('playersList'); list.innerHTML='';
+  players.forEach((p, i)=>{
+    const el = document.createElement('div'); el.className='player';
+    el.innerHTML = `<div><strong>${p.name}</strong><div class="small">Money: ${p.money}₮ — Pos: ${p.pos}</div></div><div>${i===currentPlayer?'<strong>✓ Turn</strong>':''}</div>`;
+    list.appendChild(el);
+  });
+}
+
+function colorMap(col){
+  switch(col){
+    case 'brown': return '#8B5A2B';
+    case 'lightblue': return '#6EC1E4';
+    case 'purple': return '#A66EC1';
+    case 'orange': return '#E08A3E';
+    case 'red': return '#D9534F';
+    case 'yellow': return '#FFD166';
+    case 'green': return '#4CAF50';
+    case 'darkblue': return '#1E3A8A';
+    default: return '#666';
+  }
+}
+
+// legend
+function renderLegend(){
+  const legend = document.getElementById('legend'); legend.innerHTML='';
+  const colors = ['brown','lightblue','purple','orange','red','yellow','green','darkblue'];
+  colors.forEach(c=>{
+    const item = document.createElement('div'); item.className='legend-item';
+    item.innerHTML = `<div class="dot" style="background:${colorMap(c)}"></div><div class="small">${c}</div>`;
+    legend.appendChild(item);
+  });
+}
+
+// === GAME ACTIONS ===
+function rollDice(){
+  if(players.length===0) return;
+  const pl = players[currentPlayer];
+  if(pl.jail){ log(`${pl.name} is in jail and loses a turn.`); pl.jail=false; endTurn(); return; }
+  dice = Math.floor(Math.random()*6)+1 + Math.floor(Math.random()*6)+1; // 2 dice
+  document.getElementById('diceVal').innerText = dice;
+  pl.pos = (pl.pos + dice) % tilesOrder.length;
+  log(`${pl.name} rolled ${dice} and moved to ${tilesOrder[pl.pos].name}`);
+  handleLanding(pl, tilesOrder[pl.pos]);
+  renderBoard(); renderPlayers();
+}
+
+function handleLanding(player, tile){
+  // tile may have owner index
+  if(tile.owner==null){
+    log(`${tile.name} is unowned. Price: ${tile.price}₮`);
+    // auto-suggest buy but do not auto-buy
+    // enable Buy button
+    document.getElementById('buyBtn').disabled=false;
+  } else if(tile.owner===players.indexOf(player)){
+    log(`You landed on your own property.`);
+  } else {
+    // pay rent: base rent * multiplier for houses/hotel
+    const base = tile.rent;
+    let mult = 1;
+    if(tile.houses>=1) mult = [1,3,4,5,6][tile.houses] || 6;
+    if(tile.hotel) mult = 8;
+    const rent = Math.floor(base * mult);
+    const owner = players[tile.owner];
+    player.money -= rent;
+    owner.money += rent;
+    log(`${player.name} paid ${rent}₮ rent to ${owner.name} for ${tile.name}.`);
+    document.getElementById('buyBtn').disabled=true;
+    checkBankruptcy(player);
+  }
+}
+
+function buyProperty(){
+  const pl = players[currentPlayer];
+  const tile = tilesOrder[pl.pos];
+  if(tile.owner!=null){ log('Already owned'); return; }
+  if(pl.money < tile.price){ log('Not enough money to buy.'); return; }
+  pl.money -= tile.price; tile.owner = currentPlayer; pl.properties.push(pl.pos);
+  log(`${pl.name} bought ${tile.name} for ${tile.price}₮`);
+  renderPlayers(); renderBoard();
+}
+
+function buildHouse(){
+  const pl = players[currentPlayer];
+  const tile = tilesOrder[pl.pos];
+  if(tile.owner !== currentPlayer){ log('You must own the property to build.'); return; }
+  // check monopoly: own all of same color
+  const color = tile.color; const indices = tilesOrder.map((t,i)=>t.color===color?i:null).filter(i=>i!==null);
+  const ownsAll = indices.every(i=>tilesOrder[i].owner===currentPlayer);
+  if(!ownsAll){ log('You must own full color set to build houses.'); return; }
+  const cost = upgradeCosts[color].house;
+  if(pl.money < cost){ log('Not enough money to build a house.'); return; }
+  tile.houses = (tile.houses||0)+1;
+  pl.money -= cost;
+  log(`${pl.name} built a house on ${tile.name} for ${cost}₮ (Houses:${tile.houses})`);
+  renderPlayers(); renderBoard();
+}
+
+function upgradeHotel(){
+  const pl = players[currentPlayer];
+  const tile = tilesOrder[pl.pos];
+  if(tile.owner !== currentPlayer){ log('You must own the property to upgrade.'); return; }
+  const color = tile.color; const cost = upgradeCosts[color].hotel;
+  if(pl.money < cost){ log('Not enough money for hotel.'); return; }
+  // require 4 houses before hotel in this prototype
+  if((tile.houses||0) < 4){ log('You need 4 houses before upgrading to hotel.'); return; }
+  tile.houses = 0; tile.hotel = true; pl.money -= cost;
+  log(`${pl.name} upgraded ${tile.name} to a HOTEL for ${cost}₮`);
+  renderPlayers(); renderBoard();
+}
+
+function checkBankruptcy(player){
+  if(player.money < 0){ log(`${player.name} is bankrupt! Removed from game.`); // simple removal
+    // transfer properties to bank
+    tilesOrder.forEach(t=>{ if(t.owner===players.indexOf(player)){ t.owner=null; t.houses=0; t.hotel=false; } });
+    players = players.filter(p=>p!==player);
+    if(currentPlayer >= players.length) currentPlayer = 0;
+    renderPlayers(); renderBoard();
+  }
+}
+
+function endTurn(){
+  document.getElementById('buyBtn').disabled=true;
+  currentPlayer = (currentPlayer + 1) % players.length;
+  log(`Now it's ${players[currentPlayer].name}'s turn.`);
+  renderPlayers(); renderBoard();
+}
+
+// === Wiring UI ===
+initTilesOrder(); renderLegend();
+
+document.getElementById('newGame').addEventListener('click', ()=>newGame());
+document.getElementById('rollBtn').addEventListener('click', ()=>rollDice());
+document.getElementById('buyBtn').addEventListener('click', ()=>buyProperty());
+document.getElementById('buildBtn').addEventListener('click', ()=>buildHouse());
+document.getElementById('upgradeBtn').addEventListener('click', ()=>upgradeHotel());
+document.getElementById('endTurnBtn').addEventListener('click', ()=>endTurn());
+
+// Start default game
+newGame();
+</script>
+</body>
+</html>
